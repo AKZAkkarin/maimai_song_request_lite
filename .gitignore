@@ -1,0 +1,17 @@
+# 构建产物
+bin/
+obj/
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# 日志
+*.log
+
+# 本地配置
+.env
+
+# 编译出的 DLL 不随源码提交
+*.dll
