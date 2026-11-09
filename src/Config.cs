@@ -1,4 +1,4 @@
-﻿// 用途：点歌 Lite mod 的配置（MelonPreferences，落 Mods/SongRequestLite.cfg 之类）。
+// 用途：点歌 Lite mod 的配置（MelonPreferences，落 Mods/SongRequestLite.cfg 之类）。
 // 状态：现行。
 using MelonLoader;
 
@@ -27,6 +27,9 @@ namespace SongRequestMod
         /// <summary>自动回传时对方机器上的端口（测试脚本默认监听 20010）</summary>
         public static int CallbackPort = 20010;
 
+        /// <summary>读取当前存档时，dataid 大于这个值的谱面不输出（默认 5000）</summary>
+        public static int DataIdMax = 5000;
+
         public static void Load()
         {
             var c = MelonPreferences.CreateCategory("SongRequestLite", "点歌（Lite）");
@@ -39,6 +42,8 @@ namespace SongRequestMod
                 "手动覆盖回传地址；留空 = 自动（回到给你发 /jump 的那台机器）").Value ?? "").Trim();
             CallbackPort = c.CreateEntry("回传端口", 20010,
                 "自动回传用的端口（对方机器上监听成绩的端口）").Value;
+            DataIdMax = c.CreateEntry("存档dataid上限", 5000,
+                "读取当前存档时，dataid > 这个值的谱面不输出（默认 5000）").Value;
 
             MelonPreferences.Save();   // 让 cfg 文件立刻落盘（否则要等游戏正常退出才写）
         }

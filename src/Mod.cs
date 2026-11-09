@@ -1,15 +1,15 @@
 // 用途：自用版点歌 mod —— 只保留「收到命令跳歌」+「结算回传成绩」，没有网页/别名/游玩面板。
-// 状态：现行（0.1.2）。跳曲状态机 / 主线程队列源自上游 ZCM-X/maimai-song-request（MIT），
+// 状态：现行（0.1.9）。跳曲状态机 / 主线程队列源自上游 ZCM-X/maimai-song-request（MIT），
 //       已针对汉化整合包的 STD/DX 双卡结构和曲目表来源做过修改。
 using System;
 using System.Reflection;
 using MelonLoader;
 using HarmonyLib;
 
-[assembly: MelonInfo(typeof(SongRequestMod.Mod), "SongRequestLite", "0.1.2", "")]
+[assembly: MelonInfo(typeof(SongRequestMod.Mod), "SongRequestLite", "0.1.9", "")]
 [assembly: MelonGame("sega-interactive", "Sinmai")]
-[assembly: AssemblyVersion("0.1.2.0")]
-[assembly: AssemblyFileVersion("0.1.2.0")]
+[assembly: AssemblyVersion("0.1.9.0")]
+[assembly: AssemblyFileVersion("0.1.9.0")]
 
 namespace SongRequestMod
 {
@@ -39,7 +39,8 @@ namespace SongRequestMod
             {
                 HarmonyInstance.PatchAll(typeof(Patch_SelectOnStart));
                 HarmonyInstance.PatchAll(typeof(Patch_SelectOnRelease));
-                ModLog.Info("Harmony 已挂: MusicSelectProcess.OnStart / OnRelease");
+                HarmonyInstance.PatchAll(typeof(Patch_ResultOnStart));
+                ModLog.Info("Harmony 已挂: MusicSelectProcess / ResultProcess");
             }
             catch (Exception e)
             {
@@ -116,8 +117,8 @@ namespace SongRequestMod
             // 3) 点歌请求：统一在主线程执行（HTTP 线程直接动游戏对象会崩）
             SelectDriver.RunPending();
 
-            // 4) 结算成绩回传（主线程只读快照，网络走后台线程）
-            ScoreReporter.Tick();
+            // 4) 每秒采样登录状态；结算由 ResultProcess.OnStart 直接通知
+            ResultWatcher.Tick();
         }
     }
 }

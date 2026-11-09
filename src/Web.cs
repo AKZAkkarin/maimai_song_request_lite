@@ -1,4 +1,5 @@
-﻿// 用途：极简 HTTP 接口 —— 只有 POST /jump（跳歌）和 GET /status（活着没/忙不忙）。没有页面、没有曲绘、没有 SSE。
+// 用途：极简 HTTP 接口 —— POST /jump（跳歌）、GET /status、GET /save、GET /wait-select。
+//       wait-select 是长轮询：选歌界面可点歌时才返回，避免网页端盲推。没有页面/曲绘/SSE。
 // 状态：现行。无鉴权，默认只监听 127.0.0.1；配置「局域网」打开才多绑局域网 IP。
 using System;
 using System.Collections.Generic;
@@ -32,7 +33,7 @@ namespace SongRequestMod
                 t.Start();
                 foreach (var u in _urls)
                 {
-                    ModLog.Always("[点歌] 接口: " + u + "  ·  POST /jump   GET /status");
+                    ModLog.Always("[点歌] 接口: " + u + "  ·  POST /jump   GET /status   GET /save   GET /wait-select");
                 }
                 ModLog.Always("[点歌] 成绩回传: " + (string.IsNullOrEmpty(Config.ScoreCallback)
                     ? ("自动 → 最近一次发 /jump 的那台机器, 端口 " + Config.CallbackPort)
@@ -161,9 +162,39 @@ namespace SongRequestMod
                 Reply(ctx, 200, StatusJson());
                 return;
             }
+            if (path == "/score" || path == "/api/score")
+            {
+                int sid, sdiff;
+                if (!int.TryParse(ctx.Request.QueryString["internalId"], out sid)
+                    || !int.TryParse(ctx.Request.QueryString["chartId"], out sdiff))
+                {
+                    Reply(ctx, 400, "{\"ok\":false,\"error\":\"缺 internalId/chartId\"}");
+                    return;
+                }
+                string one = MainThread.Run(
+                    () => SaveReader.ScoreJson(sid, sdiff),
+                    5000,
+                    "{\"ok\":false,\"error\":\"主线程读取单曲成绩超时\"}");
+                Reply(ctx, 200, one);
+                return;
+            }
+            if (path == "/wait-select" || path == "/api/wait-select")
+            {
+                WaitSelect(ctx);
+                return;
+            }
             if (path == "/probe")
             {
                 Reply(ctx, 200, SelectDriver.ProbeJson());
+                return;
+            }
+            if (path == "/save" || path == "/api/save")
+            {
+                string json = MainThread.Run(
+                    SaveReader.CaptureJson,
+                    5000,
+                    "{\"ok\":false,\"error\":\"主线程读取存档超时\"}");
+                Reply(ctx, 200, json);
                 return;
             }
             if (path == "/callback")
@@ -195,7 +226,49 @@ namespace SongRequestMod
                 Jump(ctx);
                 return;
             }
-            Reply(ctx, 404, "{\"ok\":false,\"error\":\"只有 POST /jump 和 GET /status\"}");
+            Reply(ctx, 404, "{\"ok\":false,\"error\":\"只有 POST /jump、GET /status、GET /save、GET /wait-select\"}");
+        }
+
+        /// <summary>
+        /// 长轮询：等到玩家真的能点歌（在选曲界面且跳曲队列空闲）再返回。
+        /// 网页端拿到这个响应后才发 /jump，不需要自己反复盲试。
+        /// </summary>
+        private static void WaitSelect(HttpListenerContext ctx)
+        {
+            int timeoutMs;
+            if (!int.TryParse(ctx.Request.QueryString["timeout"], out timeoutMs))
+            {
+                timeoutMs = 30000;
+            }
+            if (timeoutMs < 100)
+            {
+                timeoutMs = 100;
+            }
+            if (timeoutMs > 120000)
+            {
+                timeoutMs = 120000;
+            }
+
+            int start = Environment.TickCount;
+            while (true)
+            {
+                if (Mod.Ready && SelectDriver.InSelectCached && !SelectDriver.Busy)
+                {
+                    Reply(ctx, 200, "{\"ok\":true,\"ready\":true,\"inSelect\":true,\"busy\":false,\"waitedMs\":"
+                        + unchecked(Environment.TickCount - start) + "}");
+                    return;
+                }
+                int elapsed = unchecked(Environment.TickCount - start);
+                if (elapsed >= timeoutMs)
+                {
+                    Reply(ctx, 200, "{\"ok\":true,\"ready\":false,\"inSelect\":"
+                        + (SelectDriver.InSelectCached ? "true" : "false")
+                        + ",\"busy\":" + (SelectDriver.Busy ? "true" : "false")
+                        + ",\"timeout\":true,\"waitedMs\":" + elapsed + "}");
+                    return;
+                }
+                Thread.Sleep(100);
+            }
         }
 
         private static void Jump(HttpListenerContext ctx)
@@ -305,6 +378,10 @@ namespace SongRequestMod
                 + ",\"version\":\"" + typeof(Web).Assembly.GetName().Version + "\""
                 + ",\"songs\":" + SongTable.Rev
                 + ",\"inSelect\":" + (inSelect ? "true" : "false")
+                + ",\"resultSerial\":" + ResultWatcher.ResultSerial
+                + ",\"loginSerial\":" + ResultWatcher.LoginSerial
+                + ",\"isEntry\":" + (ResultWatcher.IsEntry ? "true" : "false")
+                + ",\"userName\":\"" + SongTable.Escape(ResultWatcher.UserName ?? "") + "\""
                 + ",\"busy\":" + (busy ? "true" : "false")
                 + ",\"callbackTo\":\"" + SongTable.Escape(CallbackTo()) + "\""
                 + ",\"lastCaller\":\"" + SongTable.Escape(Mod.LastCallerIp ?? "") + "\""
